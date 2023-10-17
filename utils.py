@@ -9,7 +9,7 @@ def load_file(file):
     emotion = []
     for line in f:
         line_splited = line.replace('\n', '').split(';')
-        text.append(line_splited[0])
+        text.append(line_splited[0].split(' '))
         emotion.append(line_splited[1])
     f.close()
     return text, emotion
