@@ -81,15 +81,16 @@ for i in range(nb_epochs):
         optimizer.step()
     
     sentences_test, emotions_test = test_dataset.tensors
-    correct = torch.argmax(rnn(sentences_test)) == emotions_test
+    correct = torch.sum(torch.argmax(rnn(sentences_test), dim=1) == emotions_test)
     correct_train_sum = 0
     correct_train_len = 0
     for sentences, emotions in dataloader:
-        correct_train = torch.argmax(rnn(sentences)) == emotions
+        correct_train = torch.argmax(rnn(sentences), dim=1) == emotions
         correct_train_sum += sum(correct_train)
         correct_train_len += len(correct_train)
-    print(float(correct_train_sum/correct_train_len))
-    print(float(sum(correct)/len(correct)))
+        
+    print("Train : ", float(correct_train_sum/correct_train_len))
+    print("Test : ", float(correct/len(emotions_test)))
 
         
 # %%

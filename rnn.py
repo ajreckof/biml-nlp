@@ -24,8 +24,6 @@ class RNN(nn.Module):
 
         # Get the number of columns
         batch_size, num_columns = input.shape
-
-        input = F.one_hot(input, num_classes=self.input_size).to(torch.double)
         
         hidden = self.initHidden(batch_size)
         rez = None
@@ -37,12 +35,11 @@ class RNN(nn.Module):
 
     def forward_word(self, input, hidden):
 
+        input = F.one_hot(input, num_classes=self.input_size).to(torch.double)
+
         input = self.i2e(input)
-        
         combined = torch.cat((input, hidden), 1)
-        
         output = self.i2o(combined)
-    
         hidden = self.i2h(combined)
         
         return output, hidden
