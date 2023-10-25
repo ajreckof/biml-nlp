@@ -10,15 +10,18 @@ class RNN(nn.Module):
         self.hidden_size = hidden_size
         
         
-        self.i2e = nn.Linear(input_size, embed_size, dtype=torch.double)
+        self.i2e = nn.Sequential(
+            nn.Linear(input_size, embed_size, dtype=torch.double),
+            nn.ReLU(),
+        )
 
         self.i2o = nn.Sequential(
             nn.Linear(embed_size + hidden_size, output_size, dtype=torch.double),
             nn.Softmax(dim = 1)
-            )
+        )
         self.i2h = nn.Sequential(
             nn.Linear(embed_size + hidden_size, hidden_size, dtype=torch.double),
-            )
+        )
 
     def forward(self,input):
 
