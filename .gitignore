@@ -1,3 +1,15 @@
 .vscode
 .DS_store
 __pycache__
+
+# LaTeX
+*.aux
+*.bbl
+*.blg
+*.log
+*.out
+*.toc
+*.synctex.gz
+*.pdf
+*.fdb_latexmk
+*.fls
