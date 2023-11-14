@@ -53,10 +53,7 @@ class RNN(nn.Module):
             batch_word = input[:, i]
             hidden = self.forward_word(batch_word, hidden)
         batch_word = input[:, num_columns-1]
-        if return_both :
-            return self.forward_word(batch_word, hidden, is_final = True, return_both = True)
-        else :    
-            return self.forward_word(batch_word, hidden, is_final = True, is_secondary = is_secondary)
+        return self.forward_word(batch_word, hidden, is_final = True, return_both = return_both, is_secondary= is_secondary)
 
     def forward_word(self, input, hidden, is_final = False, is_secondary = False, return_both = False):
 
@@ -82,13 +79,13 @@ class RNN(nn.Module):
         emotions_predictions = torch.argmax(emotions_output, dim=1)
         return (
             float(torch.sum(emotions_predictions == emotions))/len(phrases),
-            float(torch.sum((negatives_output > 0) == negatives))/len(phrases),
             matthews_corrcoef(emotions, emotions_predictions),
+            matthews_corrcoef(negatives, negatives_output > 0),
         )
 
     def confusion_matrix(self, dataset):
         phrases, emotions, _ = dataset.tensors
-        return confusion_matrix(emotions, torch.argmax(self(phrases), dim=1))
+        return confusion_matrix(emotions, torch.argmax(self(phrases), dim=1, normalize = "true"))
 
 
 def plot(train, test, file_name = ""):
@@ -106,9 +103,9 @@ def plot(train, test, file_name = ""):
         plt.savefig(f'plot/{file_name}.pdf')
 
 
-def train_rnn(train_dataset, test_dataset, size_vocab, batch_size=8, nb_epochs=20, lr= 10**-4, secondary_proportion = 0.1, embed_size = 100, hidden_size = 100, with_emotions_weight = True):
+def train_rnn(train_dataset, val_dataset, test_dataset, size_vocab, batch_size=8, nb_epochs=20, lr= 10**-4, secondary_proportion = 0.1, embed_size = 100, hidden_size = 100, with_emotions_weight = True):
     _,emotions, negatives = train_dataset.tensors
-    weight_negatives = len(negatives)/torch.sum(negatives) - 1
+    weight_negatives = len(negatives)/torch.sum(negatives) - 1 #taux de négatif sur taux de positif 
     emotions_count = torch.bincount(emotions).to(torch.double)
     weight_emotions = len(emotions)/len(emotions_count)/emotions_count
     dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
@@ -121,13 +118,12 @@ def train_rnn(train_dataset, test_dataset, size_vocab, batch_size=8, nb_epochs=2
     secondary_loss_function = torch.nn.BCEWithLogitsLoss(pos_weight=torch.tensor([weight_negatives]))
     optimizer = torch.optim.AdamW(rnn.parameters(),lr=lr)
     acc_train = []
-    acc_test = []
-    acc_secondary_train = []
-    acc_secondary_test = []
+    acc_val = []
+    phi_sec_train = []
+    phi_sec_val = []
     phi_train = []
-    phi_test = []
-    id = str(uuid.uuid4())
-    dh = display(printer("epoch : 0"), display_id=id)
+    phi_val = []
+    dh = display(printer("epoch : 0"), display_id=True)
     
     for i in range(nb_epochs):
         for sentences, emotions, negatives in tqdm(dataloader):
@@ -138,43 +134,38 @@ def train_rnn(train_dataset, test_dataset, size_vocab, batch_size=8, nb_epochs=2
             optimizer.step()
         
         with torch.no_grad() :
-            acc, acc_secondary, phi = rnn.test(*train_dataset.tensors)
+            acc, phi, phi_sec = rnn.test(*train_dataset.tensors)
             acc_train.append(acc)
-            acc_secondary_train.append(acc_secondary)
+            phi_sec_train.append(phi_sec)
             phi_train.append(phi)
             
-            acc, acc_secondary, phi = rnn.test(*test_dataset.tensors)
-            acc_test.append(acc)
-            acc_secondary_test.append(acc_secondary)
-            phi_test.append(phi)
+            acc, phi, phi_sec = rnn.test(*val_dataset.tensors)
+            acc_val.append(acc)
+            phi_sec_val.append(phi_sec)
+            phi_val.append(phi)
 
         if dh != None :
             dh.update(printer(
                 f""" 
                     epoch : {i+1}
                     Train : {acc_train[-1]}
-                    Test : {acc_test[-1]} 
+                    Test : {acc_val[-1]} 
                 """
             ))   
         else : 
-            print(printer(
-                f""" 
-                    epoch : {i+1}
-                    Train : {acc_train[-1]}
-                    Test : {acc_test[-1]} 
-                """
-            )) 
+            print("epoch :",i+1) 
     cm_train = rnn.confusion_matrix(train_dataset)
     cm_test = rnn.confusion_matrix(test_dataset)
+    cm_val = rnn.confusion_matrix(val_dataset)
     clear_output(wait= True)
-    return (acc_test, acc_train), (acc_secondary_test, acc_secondary_train), (phi_test, phi_train), (cm_test, cm_train)
+    return (acc_train, acc_val), (phi_train, phi_val), (phi_sec_train, phi_sec_val), (cm_train, cm_val, cm_test)
 
 def one_argument(func,arg):
 	return func(*arg)
 
 
         
-def test_rnn_with_or_without_emotions_weights(train_dataset, test_dataset, size_vocab, cases, n= 10, num_workers = 1, **kwargs):
+def test_rnn_with_or_without_emotions_weights(cases, n= 10, num_workers = 1, **kwargs):
 
     acc = {}
     acc_sec = {}
@@ -199,7 +190,7 @@ def test_rnn_with_or_without_emotions_weights(train_dataset, test_dataset, size_
                 tqdm(
                     pool.imap_unordered(
                         train_rnn_one_argument_with_kwargs,
-                        [(train_dataset, test_dataset, size_vocab)] * n,
+                        [()] * n,
                     )
                 )
             )
@@ -211,7 +202,7 @@ def test_rnn_with_or_without_emotions_weights(train_dataset, test_dataset, size_
             cm[name] = []
                         
             for _ in range(n):
-                acc_one, acc_sec_one, phi_one, cm_one = train_rnn_one_argument_with_kwargs((train_dataset, test_dataset, size_vocab))
+                acc_one, acc_sec_one, phi_one, cm_one = train_rnn_one_argument_with_kwargs(())
                 acc[name].append(acc_one)
                 acc_sec[name].append(acc_sec_one)
                 phi[name].append(phi_one)
