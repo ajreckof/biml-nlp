@@ -14,7 +14,3 @@ def load_file(file):
     f.close()
     return text, emotion
 
-def encodeOH (phrases):
-    vocab = build_vocab_from_iterator(phrases)
-    return F.one_hot(torch.tensor(vocab), len(vocab))
-    
