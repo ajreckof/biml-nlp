@@ -36,7 +36,8 @@
 \newpage
 
 \section{Modèle}
-Notre architecture de modèle suit fidèlement les spécifications du sujet \ref{fig:modele_rnn}. Le processus commence par l'encodage en One Hot d'un mot en entrée, suivi d'un passage à travers une couche linéaire d'embedding. Par la suite, le modèle concatène la sortie de cette couche d'embedding avec des données cachées internes au modèle, permettant ainsi la mémorisation des mots précédents dans la phrase. Enfin, ces données sont traitées par deux couches en parallèle pour produire en sortie une classification de l'émotion associée à la phrase. De manière récurrente, les informations résultantes sont également réinjectées dans les données cachées pour le traitement du mot suivant. Toutes les couches sont des couches linéaires.
+Notre architecture de modèle suit fidèlement les spécifications du sujet \ref{fig:modele_rnn}. Le processus commence par l'encodage en One Hot d'un mot en entrée, suivi d'un passage à travers une couche linéaire d'embedding. Par la suite, le modèle concatène la sortie de cette couche d'embedding avec des données cachées internes au modèle, permettant ainsi la mémorisation des mots précédents dans la phrase. Enfin, ces données sont traitées par deux couches en parallèle pour produire en sortie une classification de l'émotion associée à la phrase. De manière récurrente, les informations résultantes sont également réinjectées dans les données cachées pour le traitement du mot suivant. \\
+Toutes les couches sont des couches linéaires dont nous initialisons les poids avec la méthode\\ \texttt{nn.init.xavier\_uniform\_} permettant d'après nos recherches d'atténuer les effets de vanishing et d'exploding du gradient.
 
 \begin{figure}[H]
     \centering
