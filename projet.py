@@ -2,20 +2,19 @@
 import torch
 import utils
 from torchtext.vocab import build_vocab_from_iterator
-import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset
-from rnn import test_rnn_with_or_without_emotions_weights
+from rnn import test_rnn_on_multiple_cases
 import numpy as np
 from sklearn.preprocessing import LabelEncoder
 from scipy import stats
-from IPython.display import clear_output, display
 import matplotlib.pyplot as plt
 from sklearn.metrics import ConfusionMatrixDisplay
 from sklearn.feature_extraction.text import TfidfVectorizer
 from inspect import cleandoc
-from time_checker import Time_checker
 from tqdm import tqdm
-import time
+from IPython.display import clear_output
+from matplotlib.colors import hsv_to_rgb
+
 #%%
 
 raw_phrases_train, raw_emotions_train = utils.load_file("dataset/train.txt")
@@ -44,17 +43,20 @@ for phrase in raw_phrases_train:
 values = list(count_dict.values())
 for i in range(1,19):
 	print(i,":" ,stats.percentileofscore(values, i, kind= 'strict'))
+
+chosen_min_freq = 5
+
+print(f"we will be removing words of length strictly below {chosen_min_freq:.2f} which corresponds to {stats.percentileofscore(values,chosen_min_freq, kind= 'strict')}% of words ({stats.percentileofscore(values,chosen_min_freq, kind= 'strict')/100 *len(count_dict):.0f} words)")
+
+vocab = build_vocab_from_iterator(raw_phrases_train, specials=["<unk>"], min_freq= chosen_min_freq)
+vocab_no_min_freq = build_vocab_from_iterator(raw_phrases_train, specials=["<unk>"])
+
+#%%
 # Plot the distribution
 plt.hist(values, bins=np.arange(min(values), max(values) + 1.5) - 0.5, edgecolor='black', alpha=0.7)
 plt.yscale('log')
 plt.xscale('log')
 plt.show()
-chosen_min_freq = 5
-
-print(f"we will be removing words of length strictly below {chosen_min_freq} which corresponds to {stats.percentileofscore(values,chosen_min_freq, kind= 'strict')}% of words ({stats.percentileofscore(values,chosen_min_freq, kind= 'strict') *len(count_dict)})")
-
-vocab = build_vocab_from_iterator(raw_phrases_train, specials=["<unk>"], min_freq= chosen_min_freq)
-vocab_no_min_freq = build_vocab_from_iterator(raw_phrases_train, specials=["<unk>"])
 #%%
 len_phrase = [len(phrase) for phrase in raw_phrases_train]
 print(stats.describe(len_phrase))
@@ -72,19 +74,21 @@ print(stats.describe(len_phrase_without_unfrequent))
 #%%
 
 negatives_indicators = [
-	" not ",
-	"n't ",
-	" never ",
-	" neither ",
-	" no ",
-	" none ",
-	" nobody ",
-	" nowhere ",
-	" nothing ",
+	"not",
+	"t",
+	"dont",
+	"didnt",
+	"cant"
+	"never",
+	"neither",
+	"no",
+	"none",
+	"nobody",
+	"nowhere",
+	"nothing",
 ]
 def get_negative_from_phrase(phrase):
-	full_phrase = " " + " ".join(phrase).lower() + " "
-	return any(indicator in full_phrase for indicator in negatives_indicators)
+	return any(indicator in phrase for indicator in negatives_indicators)
 
 def select_n_max_elements(input_list, values, n):
 	# Get indices of elements sorted by their values in descending order
@@ -103,8 +107,11 @@ def prepare(phrases, sentence_length, emotions, stoi, labelEncoder, tf_idf = Non
 	negatives = []
 	s_unknown = stoi["<unk>"]
 	joined_phrases = [" ".join(phrase) for phrase in phrases]
-	tfidf_matrix = tf_idf.transform(joined_phrases)
-	feature_names = {word: index for index, word in enumerate(tf_idf.get_feature_names_out())}
+
+	if tf_idf :
+		tfidf_matrix = tf_idf.transform(joined_phrases)
+		feature_names = {word: index for index, word in enumerate(tf_idf.get_feature_names_out())}
+	
 	for phrase_index, phrase in tqdm(enumerate(phrases), total=len(phrases)) :
 		if tf_idf :
 			remove_unfrequent_word = [word for word in phrase if word in stoi]
@@ -153,7 +160,7 @@ test_dataset_no_min_freq = prepare(raw_phrases_test, sentence_length, raw_emotio
 
 
 # %%
-acc, acc_sec, phi, cm = test_rnn_with_or_without_emotions_weights(
+acc, phi, phi_sec, cm = test_rnn_on_multiple_cases(
 	train_dataset = train_dataset, 
 	val_dataset = val_dataset,
 	test_dataset = test_dataset, 
@@ -163,94 +170,186 @@ acc, acc_sec, phi, cm = test_rnn_with_or_without_emotions_weights(
 	num_workers=4,
 )
 
-# %%
-acc, phi, phi_sec, cm = test_rnn_with_or_without_emotions_weights(
-	train_dataset = train_dataset, 
-	val_dataset = val_dataset,
-	test_dataset = test_dataset, 
-	size_vocab =len(vocab),
-	cases={
-		"default"				: {},
-		"sans poids"			: {"with_emotions_weight": False},
-		"sans tâche secondaire"	: {"secondary_proportion" : 0},
-		"high embeddings"		: {"embed_size" : 300, "hidden_size" : 300, "batch_size": 24},
-		"low embeddings"		: {"embed_size" : 50, "hidden_size" : 50, "batch_size": 4},
-		"sans tf-idf"			: {"train_dataset" : train_dataset_no_tfidf, "valid_dataset" : val_dataset_no_tfidf, "test_dataset" : test_dataset_no_tfidf},
-		"sans min freq"			: {"train_dataset" : train_dataset_no_min_freq, "valid_dataset" : val_dataset_no_min_freq, "test_dataset" : test_dataset_no_min_freq},
-	},
-	n = 4,	
-	num_workers=4,
-)
 
 #%%
-base_cases = acc.keys()
-base_val_or_train = ["train ", "val "]
-cases = [test_or_train+case for case in base_cases for test_or_train in base_val_or_train]
-val = np.linspace(0, 1, len(cases))
-cmap = plt.get_cmap('rainbow')  
-color_list = [cmap(value) for value in val]
-colors = {case : color for case,color in zip(cases,color_list)}
+
 percentiles_base = [0.1, 1, 5, 10, 25, 33, 40,45]
 percentiles_values = percentiles_base + [ 100 - x for x in reversed(percentiles_base)]
 
-def get_info_and_plot(data, cases = cases):
-	info = { base_val_or_train[i] + case : list(zip(*list(zip(*data_case))[i])) for case,data_case in data.items() for i in range(2)}
+def get_info_and_plot(*data_by_type, default_case = "defaut"):
+	base_cases = data_by_type[0].keys()
+	val_or_trains = ["train ", "val "]
+	types = ["précision ", "coefficient phi ", "coefficient phi sur tache secondaire"]
+
+	info = { 
+		types[type] + val_or_trains[val_or_train] + case : list(zip(*data)) 
+		for type, data_by_case in enumerate(data_by_type)
+		for case in base_cases 
+		for val_or_train,data in enumerate(list(zip(*data_by_case[case])))
+	}
 	
 	mean = {}
 	median = {}
 	percentiles = {}
 	
-	for case in cases :
+
+	for case in info :
 		percentiles[case] = list(zip(*[np.percentile(x, percentiles_values) for x in info[case]]))
 		median[case] = [np.median(x) for x in info[case]]
 		mean[case] = [np.mean(x) for x in info[case]]
 
-	fig = plt.figure(figsize = (10,5))
+	# Create evenly spaced hues for both groups
+	hues = np.linspace(0, 1, len(base_cases), endpoint=False)
 
-	ax = fig.add_subplot(1,2,1)
-	ax.grid(visible= True, which='both')
-	ax.set_xlabel("epoch")
-	ax.set_ylabel("médiane")
-	ax.set_ylim(0,1)
-	for case in cases :
-			ax.plot(np.arange(len(median[case])), median[case], label = case, color = colors[case])
-			for i in range(len(percentiles_base)) : 
-				ax.fill_between(np.arange(len(median[case])), percentiles[case][i], percentiles[case][-i-1], color = colors[case], alpha = 0.1)
-	ax.legend(loc='upper left')
+	# Set the same saturation and lightness for both groups
 
-	ax = fig.add_subplot(1,2,2)
-	ax.grid(visible= True, which='both')
-	ax.set_xlabel("epoch")
-	ax.set_ylabel("moyenne")
-	ax.set_ylim(0,1)
-	for case in cases :
-		ax.plot(np.arange(len(mean[case])), mean[case], label = case, color = colors[case])
-	ax.legend(loc='upper left')
+	saturation_val = 0.8
+	lightness_val = 0.8
+	saturation_train = 0.5
+	lightness_train = 0.5
 
-get_info_and_plot(acc)
-get_info_and_plot(phi)
-get_info_and_plot(phi_sec)
+	# Create colors for both groups
+	colors = {
+		**{"val " + base_case	: hsv_to_rgb([hue, saturation_val, lightness_val]) for base_case, hue in zip(base_cases,hues)},
+		**{"train " + base_case	: hsv_to_rgb([hue, saturation_train, lightness_train]) for base_case, hue in zip(base_cases,hues)}
+	}
+
+	for base_case in base_cases :
+		
+		fig = plt.figure(figsize = (21,14))
+		for i, type in enumerate(types):
+			ax = fig.add_subplot(2,3,1+i)
+			ax.grid(visible= True, which='both')
+			ax.set_xlabel("epoch")
+			ax.set_ylabel("médiane")
+			ax.set_ylim(0,1)
+			for val_or_train in val_or_trains:
+				
+				case = type + val_or_train + base_case
+				case_no_type = val_or_train + base_case
+				ax.plot(np.arange(len(median[case])), median[case], label = case_no_type, color = colors[case_no_type])
+				for j in range(len(percentiles_base)) : 
+					ax.fill_between(np.arange(len(median[case])), percentiles[case][j], percentiles[case][-j-1], color = colors[case_no_type], alpha = 0.1)
+				
+
+				if base_case != default_case:
+					case = type + val_or_train + default_case
+					case_no_type = val_or_train + default_case
+					ax.plot(np.arange(len(median[case])), median[case], label = case_no_type, color = colors[case_no_type])
+					for j in range(len(percentiles_base)) : 
+						ax.fill_between(np.arange(len(median[case])), percentiles[case][j], percentiles[case][-j-1], color = colors[case_no_type], alpha = 0.1)
+				
+			ax.legend(loc='lower right')
+			ax = fig.add_subplot(2,3,4+i)
+			ax.grid(visible= True, which='both')
+			ax.set_xlabel("epoch")
+			ax.set_ylabel("moyenne")
+			ax.set_ylim(0,1)
+
+			for val_or_train in val_or_trains:
+
+				case = type + val_or_train + base_case
+				case_no_type = val_or_train + base_case
+				ax.plot(np.arange(len(mean[case])), mean[case], label = case_no_type, color = colors[case_no_type])
+			
+				if base_case != default_case:
+					case = type + val_or_train + default_case
+					case_no_type = val_or_train + default_case
+					ax.plot(np.arange(len(mean[case])), mean[case], label = case_no_type, color = colors[case_no_type])
+			
+			ax.legend(loc='lower right')
+
 
 
 
 #%%
 def avg(cm):
 	return sum(cm)/len(cm)
-base_val_or_train = ["train ", "val ", "test "]
-cm_info = { base_val_or_train[i] + case : avg(list(zip(*data_case))[i]) for case,data_case in cm.items() for i in range(3)}
-print(cm_info)
+def plot_cm(cm):
+	base_val_or_train = ["train ", "val ", "test "]
+	cm_info = { base_val_or_train[i] + case : avg(list(zip(*data_case))[i]) for case,data_case in cm.items() for i in range(3)}
 
-#%%
-base_cases = cm.keys()
-for case in base_cases:
-	fig = plt.figure(figsize = (20,5))
-	plt.subplots_adjust(wspace=0.2)
-	for i, sub_case in enumerate(base_val_or_train):
-		ConfusionMatrixDisplay(cm_info[sub_case + case], display_labels = labelEncoder.classes_).plot(cmap = 'Blues', ax = fig.add_subplot(1,3,i+1), values_format='')
+	base_cases = cm.keys()
+	for case in base_cases:
+		fig = plt.figure(figsize = (20,5))
+		fig.suptitle("matrice de confusion dans le cas " + case)
+		plt.subplots_adjust(wspace=0.2)
+		for i, sub_case in enumerate(base_val_or_train):
+			ax = fig.add_subplot(1,3,i+1)
+			ax.set_title(sub_case)
+			ConfusionMatrixDisplay(cm_info[sub_case + case], display_labels = labelEncoder.classes_).plot(cmap = 'Blues', ax = ax, values_format='.3f')
 
 
 # %%
-acc_test2, acc_train2, acc_secondary_test2, acc_secondary_train2, phi_test2, phi_train2, cm_train2, cm_test2 = test_rnn_with_or_without_emotions_weights(train_dataset, test_dataset, len(vocab), n = 4)
+acc, phi, phi_sec, cm = test_rnn_on_multiple_cases(
+	train_dataset = train_dataset, 
+	val_dataset = val_dataset,
+	test_dataset = test_dataset, 
+	size_vocab =len(vocab),
+	nb_epochs = 20,
+	cases={
+		"defaut"				: {},
+		"sans poids"			: {"with_emotions_weight": False},
+		"sans tâche secondaire"	: {"secondary_proportion" : 0},
+		"high embeddings"		: {"embed_size" : 200, "hidden_size" : 200, "batch_size": 16},
+		"low embeddings"		: {"embed_size" : 50, "hidden_size" : 50, "batch_size": 4},
+		"sans tf-idf"			: {
+			"train_dataset" : train_dataset_no_tfidf, 
+			"val_dataset" : val_dataset_no_tfidf, 
+			"test_dataset" : test_dataset_no_tfidf,
+		},
+		"sans min freq"			: {
+			"train_dataset" : train_dataset_no_min_freq, 
+			"val_dataset" : val_dataset_no_min_freq, 
+			"test_dataset" : test_dataset_no_min_freq, 
+			"size_vocab" : len(vocab_no_min_freq),
+			"batch_size" : 32,
+		},
+	},
+	n = 10,	
+	num_workers=5,
+)
+get_info_and_plot(acc,phi,phi_sec)
+plot_cm(cm)
+
+
+#%%
+cases={
+		"sans tâche secondaire"	: {"secondary_proportion" : 0},
+		"high embeddings"		: {"embed_size" : 200, "hidden_size" : 200, "batch_size": 16},
+		"low embeddings"		: {"embed_size" : 50, "hidden_size" : 50, "batch_size": 4},
+		"sans tf-idf"			: {
+			"train_dataset" : train_dataset_no_tfidf, 
+			"val_dataset" : val_dataset_no_tfidf, 
+			"test_dataset" : test_dataset_no_tfidf,
+		},
+		"sans min freq"			: {
+			"train_dataset" : train_dataset_no_min_freq, 
+			"val_dataset" : val_dataset_no_min_freq, 
+			"test_dataset" : test_dataset_no_min_freq, 
+			"size_vocab" : len(vocab_no_min_freq),
+			"batch_size" : 32,
+		}
+}
+
+for name,case in cases.items() :
+	acc_case, phi_case, phi_sec_case, cm_case = test_rnn_on_multiple_cases(
+		train_dataset = train_dataset, 
+		val_dataset = val_dataset,
+		test_dataset = test_dataset, 
+		size_vocab =len(vocab),
+		nb_epochs = 20,
+		cases={name : case},
+		n = 10,	
+		num_workers=5,
+	)
+	clear_output(wait = True)
+	acc.update(acc_case)
+	phi.update(phi_case)
+	phi_sec.update(phi_sec_case)
+	cm.update(cm_case)
+	get_info_and_plot(acc,phi,phi_sec)
+	plot_cm(cm)
 
 
 
